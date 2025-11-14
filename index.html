@@ -1,1 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BIDMAS Number-Machine Builder</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ---------- base look ---------- */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg1:#173bff;--bg2:#6929ff;--text:#fff;--muted:#c5c5ff;--accent:#ffda4e;--accent-dk:#f5c500;
+      font-family:'Inter',system-ui,sans-serif;font-size:clamp(16px,1.9vw,24px)}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+     background:linear-gradient(160deg,var(--bg1),var(--bg2));color:var(--text);
+     padding:3vh 3vw;text-align:center}
+h1{font-size:2rem;margin-bottom:.5rem}
+#info{font-size:.9rem;color:var(--muted);margin-bottom:1rem}
+#info span{font-weight:700;color:var(--text)}
+.eq{font-size:1.2rem;font-weight:700;margin-bottom:1rem}
+/* fraction */
+.frac{display:inline-block;text-align:center;vertical-align:middle}
+.frac .top,.frac .bot{display:block;padding:0 2px}
+.frac .bar{display:block;border-top:2px solid var(--text);margin:.05rem 0}
+/* machine */
+.machine{display:flex;align-items:center;gap:1.3rem;justify-content:center;
+         flex-wrap:wrap;margin-bottom:1.2rem}
+.side{display:flex;flex-direction:column;align-items:center;min-width:4.8rem}
+.side small{font-size:.65rem;color:var(--muted)}
+.arrow{font-size:1.5rem}
+.box{width:120px;height:70px;border:2px dashed var(--text);border-radius:12px;
+     display:flex;align-items:center;justify-content:center;font-size:1.35rem;font-weight:700;cursor:pointer}
+.box.filled{border-style:solid;background:rgba(255,255,255,.14)}
+/* bank */
+.bank{display:flex;flex-direction:column;gap:.9rem;align-items:center;margin-bottom:1.2rem}
+.bank-row{display:flex;flex-wrap:wrap;gap:.9rem;justify-content:center}
+.tile{padding:.55rem 1.05rem;border:2px solid var(--text);border-radius:10px;
+      background:rgba(255,255,255,.14);cursor:grab;font-size:1.25rem;font-weight:700}
+.tile:active{cursor:grabbing}
+/* buttons & feedback */
+button{padding:.7rem 1.4rem;border:none;border-radius:12px;cursor:pointer;font-weight:700;font-size:1rem;
+       margin:.25rem .45rem;box-shadow:0 3px 9px rgba(0,0,0,.25);transition:background .15s,transform .15s}
+button.primary{background:var(--accent);color:#000}
+button.secondary{background:#5b5bff;color:#fff}
+button:disabled{opacity:.5}button:not(:disabled):hover{background:var(--accent-dk)}
+button:not(:disabled):active{transform:scale(.95)}
+#feedback{min-height:1.4rem;font-weight:700;margin-top:.6rem}
 
+/* ---------- overlay ---------- */
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);
+         display:flex;justify-content:center;align-items:center;z-index:999}
+.panel{background:#1e293b;border-radius:12px;padding:2rem 2.4rem;
+       width:92%;max-width:380px;display:flex;flex-direction:column;gap:.9rem}
+.panel h2{margin:0;text-align:center;color:var(--accent)}
+.group{display:none;flex-direction:column;gap:.4rem;margin-left:1rem}
+.group.active{display:flex}
+input[type=text],input[type=number]{width:100%;padding:.55rem;border:none;
+                                    border-radius:8px;margin-top:.25rem}
+</style>
+</head>
+<body>
+
+<!-- ===== start-menu overlay ===== -->
+<div id="overlay">
+  <div class="panel">
+    <h2>Start Game</h2>
+
+    <label>Name <input id="nameIn" type="text" placeholder="(optional)"></label>
+
+    <label><input type="radio" name="mode" value="timer" checked> Timed</label>
+    <label><input type="radio" name="mode" value="target"> Target-score</label>
+
+    <div id="timGrp" class="group active">
+      <label><input type="radio" name="timer" value="300"> 5 min</label>
+      <label><input type="radio" name="timer" value="600" checked> 10 min</label>
+      <label><input type="radio" name="timer" value="900"> 15 min</label>
+      <label><input type="radio" name="timer" value="1200"> 20 min</label>
+      <label><input type="radio" name="timer" value="none"> Unlimited</label>
+    </div>
+
+    <div id="goalGrp" class="group">
+      <label>Target score <input id="goalIn" type="number" min="1" placeholder="e.g. 20"></label>
+    </div>
+
+    <button class="primary" onclick="begin()">Start</button>
+  </div>
+</div>
+
+<div>
+  <h1>🔧 Build the Number Machine</h1>
+
+  <div id="info">
+    Score <span id="score">0</span> • Time <span id="clock">--:--</span>
+    <span id="goalBox" style="display:none"> • Goal <span id="goalShow"></span></span>
+  </div>
+
+  <div id="eqText" class="eq">y = …</div>
+  <div id="machine" class="machine"></div>
+  <div id="bank"   class="bank"></div>
+
+  <button id="checkBtn" class="primary" disabled>Check</button>
+  <button id="skipBtn"  class="secondary" disabled>Skip</button>
+  <button id="nextBtn"  class="primary hide">Next</button>
+
+  <div id="feedback"></div>
+</div>
+
+<script>
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const ri=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+const frac=(n,d)=>`<span class="frac"><span class="top">${n}</span><span class="bar"></span><span class="bot">${d}</span></span>`;
+const Letters=['a','b','k','q'];
+const pickUnique=(arr,used)=>{let v;do{v=arr[ri(0,arr.length-1)];}while(used.includes(v));return v;}
+const dig =u=>pickUnique(['2','3','4','5','6','7','8','9'],u);
+const let_=u=>pickUnique(Letters,u);
+const sign =()=>Math.random()<.5?'+':'−';
+
+/* ---------- game state ---------- */
+let score=0,timeLeft=null,timerID=null,goal=null,live=false,target=[];
+
+/* ---------- overlay behaviour ---------- */
+document.querySelectorAll('input[name="mode"]').forEach(r=>
+  r.onchange=()=>{$('#timGrp').classList.toggle('active',r.value==='timer');
+                  $('#goalGrp').classList.toggle('active',r.value==='target');});
+
+/* ---------- begin ---------- */
+function begin(){
+  const mode=$('input[name="mode"]:checked').value;
+  if(mode==='timer'){
+    const t=$('input[name="timer"]:checked').value;
+    timeLeft=t==='none'?null:+t; goal=null; $('#goalBox').style.display='none';
+  }else{
+    goal=+$('#goalIn').value||0; if(goal<1){alert('Enter a positive goal');return;}
+    timeLeft=null; $('#goalShow').textContent=goal; $('#goalBox').style.display='';
+  }
+  $('#overlay').style.display='none';
+  score=0; updateHUD(); live=true;
+  buildBank(); newQuestion();
+  if(timeLeft!==null) startTimer(); else $('#clock').textContent='∞';
+}
+
+/* ---------- timer ---------- */
+function updateClock(){ $('#clock').textContent=timeLeft===null?'∞':`${Math.floor(timeLeft/60)}:${String(timeLeft%60).padStart(2,'0')}`; }
+function startTimer(){
+  updateClock();
+  timerID=setInterval(()=>{if(!live)return;
+    if(timeLeft===0){end('⏰ Time up!');}else{timeLeft--;updateClock();}},1000);
+}
+
+/* ---------- machine builders ---------- */
+const side=(l,v)=>{const d=document.createElement('div');d.className='side';
+  d.innerHTML=`<small>${l}</small><span>${v}</span>`;return d;}
+const arrow=()=>{const a=document.createElement('span');a.className='arrow';a.textContent='➜';return a;}
+function box(){const b=document.createElement('div');b.className='box';
+  b.ondblclick=()=>{delete b.dataset.op;delete b.dataset.val;b.textContent='';b.classList.remove('filled');};
+  b.ondragover=e=>e.preventDefault();
+  b.ondrop=drop;
+  return b;}
+function renderMachine(n){
+  const m=$('#machine');m.innerHTML='';m.appendChild(side('Input','x'));
+  for(let i=0;i<n;i++){m.appendChild(arrow());m.appendChild(box());}
+  m.appendChild(arrow());m.appendChild(side('Output','y'));
+}
+
+/* ---------- bank ---------- */
+function buildBank(){
+  $('#bank').innerHTML='';
+  const makeRow=arr=>{
+    const row=document.createElement('div');row.className='bank-row';
+    arr.forEach(v=>{
+      const t=document.createElement('div');t.className='tile';t.textContent=v;
+      t.draggable=true;t.dataset.type='×÷+−²³√∛'.includes(v)?'op':'val';
+      t.ondragstart=e=>e.dataTransfer.setData('text/plain',JSON.stringify({v,type:t.dataset.type}));
+      row.appendChild(t);
+    });return row;};
+  $('#bank').appendChild(makeRow(['×','÷','+','−','²','³','√','∛']));
+  $('#bank').appendChild(makeRow([...Letters,...'0123456789']));
+}
+
+/* ---------- generator (unique constants) ---------- */
+function newQuestion(){
+  const p=ri(0,18);let m,k,pv,s,root;const used=[];
+  switch(p){
+    case 0:m=dig(used);target=[['×',m]];expr=`${m}x`;break;
+    case 1:m=dig(used);target=[['÷',m]];expr=frac('x',m);break;
+    case 2:k=dig(used);target=[['+',k]];expr=`x + ${k}`;break;
+    case 3:k=let_(used);target=[['−',k]];expr=`x − ${k}`;break;
+    case 4:target=[['²','']];expr='x²';break;
+    case 5:target=[['³','']];expr='x³';break;
+    case 6:target=[['√','']];expr='√x';break;
+    case 7:target=[['∛','']];expr='∛x';break;
+    case 8:m=dig(used);k=dig([...used,m]);s=sign();target=[['×',m],[s,k]];
+           expr=`${m}x ${s} ${k}`;break;
+    case 9:m=dig(used);k=let_(used);s=sign();target=[['÷',m],[s,k]];
+           expr=`${frac('x',m)} ${s} ${k}`;break;
+    case 10:k=dig(used);s=sign();target=[[s,k],['²','']];
+            expr=`(x ${s} ${k})²`;break;
+    case 11:k=let_(used);s=sign();target=[[s,k],['³','']];
+            expr=`(x ${s} ${k})³`;break;
+    case 12:k=dig(used);s=sign();root=Math.random()<.5?'√':'∛';
+            target=[[s,k],[root,'']];expr=`${root}(x ${s} ${k})`;break;
+    case 13:m=dig(used);k=dig([...used,m]);pv=dig([...used,m,k]);s=sign();
+            target=[['×',m],[s,k],['÷',pv]];
+            expr=frac(`${m}x ${s} ${k}`,pv);break;
+    case 14:m=dig(used);k=dig([...used,m]);pv=let_(used);
+            target=[['÷',m],['+',k],['−',pv]];
+            expr=`${frac('x',m)} + ${k} − ${pv}`;break;
+    case 15:m=dig(used);k=dig([...used,m]);pv=let_(used);
+            target=[['÷',m],['−',k],['+',pv]];
+            expr=`${frac('x',m)} − ${k} + ${pv}`;break;
+    case 16:k=dig(used);pv=dig([...used,k]);s=sign();
+            target=[[s,k],['²',''],['÷',pv]];
+            expr=frac(`(x ${s} ${k})²`,pv);break;
+    case 17:k=let_(used);pv=dig(used);s=sign();
+            target=[[s,k],['³',''],['÷',pv]];
+            expr=frac(`(x ${s} ${k})³`,pv);break;
+    case 18:k=dig(used);m=dig([...used,k]);s=sign();
+            target=[[s,k],['∛',''],['×',m]];
+            expr=`${m}∛(x ${s} ${k})`;break;
+  }
+  target=target.map(([op,val])=>({op,val}));
+  $('#eqText').innerHTML=`y = ${expr}`;
+  renderMachine(target.length);
+  resetUI();
+}
+
+/* ---------- drag-drop ---------- */
+function drop(e){
+  e.preventDefault();if(!live)return;
+  const {v,type}=JSON.parse(e.dataTransfer.getData('text/plain'));
+  const b=e.currentTarget;
+  if(type==='op'){if(b.dataset.op)return;b.dataset.op=v;delete b.dataset.val;}
+  else{if(b.dataset.val)return;if('²³√∛'.includes(b.dataset.op))return;b.dataset.val=v;}
+  b.textContent=(b.dataset.op||'')+(b.dataset.val||'');
+  b.classList.toggle('filled',!!b.textContent);
+}
+
+/* ---------- UI helpers ---------- */
+function resetUI(){
+  attempted=false;
+  $('#feedback').textContent='';
+  $('#checkBtn').disabled=false;
+  $('#skipBtn').disabled=true;
+  $('#nextBtn').classList.add('hide');
+}
+
+/* ---------- scoring & flow ---------- */
+const student=()=>[...document.querySelectorAll('.box')].map(b=>({op:b.dataset.op||'',val:b.dataset.val||''}));
+const equal=(a,b)=>a.length===b.length&&a.every((s,i)=>s.op===b[i].op&&(s.val||'')==(b[i].val||''));
+
+function updateHUD(){ $('#score').textContent=score;updateClock(); }
+function end(msg){live=false;clearInterval(timerID);alert(`${msg}\nFinal score: ${score}`);$('#checkBtn').disabled=true;$('#skipBtn').disabled=true;}
+
+$('#checkBtn').onclick=()=>{
+  if(!live)return;
+  attempted=true;$('#skipBtn').disabled=false;
+  const ok=equal(student(),target);
+  $('#feedback').textContent=ok?'✅ Correct!':'❌ Try again.';
+  if(ok){
+    score++;updateHUD();
+    $('#checkBtn').disabled=true;$('#skipBtn').disabled=true;$('#nextBtn').classList.remove('hide');
+    if(goal!==null&&score>=goal)end('🏆 Goal reached!');
+  }
+};
+$('#skipBtn').onclick=()=>{
+  if(attempted&&live){
+    $('#feedback').textContent='⏩ Skipped.';
+    $('#checkBtn').disabled=true;$('#skipBtn').disabled=true;$('#nextBtn').classList.remove('hide');
+  }
+};
+$('#nextBtn').onclick=()=>{
+  if(!live)return;
+  newQuestion();
+};
+
+/* ---------- initial ---------- */
+</script>
+</body>
+</html>
